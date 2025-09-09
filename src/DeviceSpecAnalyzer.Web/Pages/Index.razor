@@ -1,0 +1,261 @@
+@page "/"
+@using DeviceSpecAnalyzer.Core.Interfaces
+@using DeviceSpecAnalyzer.Core.Models
+@inject IDocumentRepository DocumentRepository
+
+<PageTitle>Dashboard - Device Specification Analyzer</PageTitle>
+
+<div class="mb-4">
+    <h1 class="display-4">
+        <i class="bi bi-speedometer2 text-primary"></i>
+        Dashboard
+    </h1>
+    <p class="lead text-muted">Welcome to the Device Specification Analyzer. Monitor your document repository and analysis progress.</p>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-xl-3 col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-grow-1">
+                        <h6 class="card-title text-muted mb-1">Total Documents</h6>
+                        <h3 class="mb-0">@totalDocuments</h3>
+                    </div>
+                    <div class="bg-primary bg-gradient rounded-3 p-3">
+                        <i class="bi bi-file-earmark-text text-white fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-grow-1">
+                        <h6 class="card-title text-muted mb-1">Processed</h6>
+                        <h3 class="mb-0">@processedDocuments</h3>
+                    </div>
+                    <div class="bg-success bg-gradient rounded-3 p-3">
+                        <i class="bi bi-check-circle text-white fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-grow-1">
+                        <h6 class="card-title text-muted mb-1">Processing</h6>
+                        <h3 class="mb-0">@processingDocuments</h3>
+                    </div>
+                    <div class="bg-warning bg-gradient rounded-3 p-3">
+                        <i class="bi bi-hourglass-split text-white fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-grow-1">
+                        <h6 class="card-title text-muted mb-1">Repository Status</h6>
+                        <h6 class="mb-0">
+                            <span class="badge bg-success">Active</span>
+                        </h6>
+                    </div>
+                    <div class="bg-info bg-gradient rounded-3 p-3">
+                        <i class="bi bi-folder-check text-white fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom-0 py-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Recent Documents</h5>
+                    <a href="/documents" class="btn btn-sm btn-outline-primary">View All</a>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                @if (recentDocuments.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Document</th>
+                                    <th>Protocol</th>
+                                    <th>Manufacturer</th>
+                                    <th>Status</th>
+                                    <th>Uploaded</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var doc in recentDocuments)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="d-flex align-items-center">
+                                                <i class="bi bi-file-earmark-pdf text-danger me-2"></i>
+                                                <div>
+                                                    <div class="fw-semibold">@doc.FileName</div>
+                                                    <small class="text-muted">@FormatFileSize(doc.FileSizeBytes)</small>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            @if (!string.IsNullOrEmpty(doc.Protocol))
+                                            {
+                                                <span class="badge bg-info">@doc.Protocol</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">Unknown</span>
+                                            }
+                                        </td>
+                                        <td>@(doc.Manufacturer ?? "Unknown")</td>
+                                        <td>@GetStatusBadge(doc.Status)</td>
+                                        <td>
+                                            <small class="text-muted">@doc.UploadedAt.ToString("MMM dd, yyyy")</small>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-center py-5">
+                        <i class="bi bi-inbox display-1 text-muted"></i>
+                        <h5 class="text-muted mt-3">No documents yet</h5>
+                        <p class="text-muted">Upload your first specification document to get started.</p>
+                        <a href="/upload" class="btn btn-primary">Upload Document</a>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom-0 py-3">
+                <h5 class="card-title mb-0">Protocol Distribution</h5>
+            </div>
+            <div class="card-body">
+                @if (protocolStats.Any())
+                {
+                    @foreach (var protocol in protocolStats)
+                    {
+                        var percentage = totalDocuments > 0 ? (protocol.Value * 100.0 / totalDocuments) : 0;
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-semibold">@protocol.Key</span>
+                                <small class="text-muted">@protocol.Value documents</small>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar" role="progressbar" style="width: @(percentage)%"></div>
+                            </div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="text-center py-3">
+                        <i class="bi bi-pie-chart text-muted fs-1"></i>
+                        <p class="text-muted mt-2 mb-0">No data available</p>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm mt-4">
+            <div class="card-header bg-white border-bottom-0 py-3">
+                <h5 class="card-title mb-0">Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="/upload" class="btn btn-primary">
+                        <i class="bi bi-cloud-upload me-2"></i>Upload Document
+                    </a>
+                    <a href="/comparison" class="btn btn-outline-primary">
+                        <i class="bi bi-columns-gap me-2"></i>Compare Documents
+                    </a>
+                    <a href="/reports" class="btn btn-outline-secondary">
+                        <i class="bi bi-graph-up me-2"></i>View Reports
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private int totalDocuments;
+    private int processedDocuments;
+    private int processingDocuments;
+    private IEnumerable<Document> recentDocuments = new List<Document>();
+    private Dictionary<string, int> protocolStats = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboardData();
+    }
+
+    private async Task LoadDashboardData()
+    {
+        try
+        {
+            var allDocuments = await DocumentRepository.GetAllAsync();
+            totalDocuments = allDocuments.Count();
+            processedDocuments = await DocumentRepository.GetCountByStatusAsync(DocumentStatus.Processed);
+            processingDocuments = await DocumentRepository.GetCountByStatusAsync(DocumentStatus.Processing);
+            
+            recentDocuments = await DocumentRepository.GetRecentAsync(5);
+            
+            protocolStats = allDocuments
+                .GroupBy(d => d.Protocol ?? "Unknown")
+                .ToDictionary(g => g.Key, g => g.Count())
+                .OrderByDescending(kvp => kvp.Value)
+                .Take(5)
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading dashboard data: {ex.Message}");
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024:F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024 * 1024):F1} MB";
+        return $"{bytes / (1024 * 1024 * 1024):F1} GB";
+    }
+
+    private MarkupString GetStatusBadge(DocumentStatus status)
+    {
+        return status switch
+        {
+            DocumentStatus.Processed => new MarkupString("<span class=\"badge bg-success\">Processed</span>"),
+            DocumentStatus.Processing => new MarkupString("<span class=\"badge bg-warning\">Processing</span>"),
+            DocumentStatus.Failed => new MarkupString("<span class=\"badge bg-danger\">Failed</span>"),
+            _ => new MarkupString("<span class=\"badge bg-secondary\">Uploaded</span>")
+        };
+    }
+}

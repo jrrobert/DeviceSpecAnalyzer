@@ -1,0 +1,351 @@
+@page "/documents"
+@using DeviceSpecAnalyzer.Core.Interfaces
+@using DeviceSpecAnalyzer.Core.Models
+@inject IDocumentRepository DocumentRepository
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Documents - Device Specification Analyzer</PageTitle>
+
+<div class="mb-4">
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <h1 class="display-5">
+                <i class="bi bi-file-earmark-text text-primary"></i>
+                Documents
+            </h1>
+            <p class="lead text-muted">Manage and view your specification documents.</p>
+        </div>
+        <div>
+            <a href="/upload" class="btn btn-primary">
+                <i class="bi bi-cloud-upload me-2"></i>Upload New Document
+            </a>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="row g-3 align-items-center">
+                    <div class="col-md-4">
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control" placeholder="Search documents..." 
+                                   @bind="searchTerm" @oninput="OnSearchChanged">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select" @bind="protocolFilter" @bind:after="OnFilterChanged">
+                            <option value="">All Protocols</option>
+                            <option value="POCT1-A">POCT1-A</option>
+                            <option value="ASTM">ASTM</option>
+                            <option value="HL7">HL7</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select" @bind="statusFilter" @bind:after="OnFilterChanged">
+                            <option value="">All Statuses</option>
+                            <option value="Processed">Processed</option>
+                            <option value="Processing">Processing</option>
+                            <option value="Failed">Failed</option>
+                            <option value="Uploaded">Uploaded</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-outline-secondary w-100" @onclick="ClearFilters">
+                            <i class="bi bi-x-lg"></i> Clear
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center">
+                <div class="row text-center">
+                    <div class="col">
+                        <h5 class="text-primary">@totalCount</h5>
+                        <small class="text-muted">Total</small>
+                    </div>
+                    <div class="col">
+                        <h5 class="text-success">@processedCount</h5>
+                        <small class="text-muted">Processed</small>
+                    </div>
+                    <div class="col">
+                        <h5 class="text-warning">@processingCount</h5>
+                        <small class="text-muted">Processing</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        @if (isLoading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-3 text-muted">Loading documents...</p>
+            </div>
+        }
+        else if (filteredDocuments.Any())
+        {
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Document</th>
+                            <th>Protocol</th>
+                            <th>Manufacturer</th>
+                            <th>Device</th>
+                            <th>Status</th>
+                            <th>Uploaded</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var doc in filteredDocuments.Take(pageSize))
+                        {
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-file-earmark-pdf text-danger me-2 fs-5"></i>
+                                        <div>
+                                            <div class="fw-semibold">@doc.FileName</div>
+                                            <small class="text-muted">
+                                                @FormatFileSize(doc.FileSizeBytes) • 
+                                                @(doc.Content?.PageCount ?? 0) pages •
+                                                @(doc.Content?.WordCount ?? 0) words
+                                            </small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(doc.Protocol))
+                                    {
+                                        <span class="badge bg-info">@doc.Protocol</span>
+                                        @if (!string.IsNullOrEmpty(doc.Version))
+                                        {
+                                            <small class="text-muted d-block">v@doc.Version</small>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">Unknown</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span>@(doc.Manufacturer ?? "Unknown")</span>
+                                </td>
+                                <td>
+                                    <span>@(doc.DeviceName ?? "Unknown")</span>
+                                </td>
+                                <td>@GetStatusBadge(doc.Status)</td>
+                                <td>
+                                    <div>
+                                        <small class="text-muted">@doc.UploadedAt.ToString("MMM dd, yyyy")</small>
+                                        <small class="text-muted d-block">@doc.UploadedAt.ToString("h:mm tt")</small>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <button class="btn btn-outline-primary" @onclick="() => ViewDocument(doc.Id)">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                        @if (doc.Status == DocumentStatus.Processed)
+                                        {
+                                            <button class="btn btn-outline-success" @onclick="() => CompareDocument(doc.Id)">
+                                                <i class="bi bi-columns-gap"></i>
+                                            </button>
+                                        }
+                                        <button class="btn btn-outline-danger" @onclick="() => DeleteDocument(doc.Id)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            
+            @if (filteredDocuments.Count() > pageSize)
+            {
+                <div class="card-footer bg-white">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <small class="text-muted">Showing @Math.Min(pageSize, filteredDocuments.Count()) of @filteredDocuments.Count() documents</small>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="LoadMore">
+                            Load More
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="text-center py-5">
+                <i class="bi bi-inbox display-1 text-muted"></i>
+                <h5 class="text-muted mt-3">No documents found</h5>
+                <p class="text-muted">
+                    @if (!string.IsNullOrEmpty(searchTerm) || !string.IsNullOrEmpty(protocolFilter) || !string.IsNullOrEmpty(statusFilter))
+                    {
+                        <text>Try adjusting your filters or</text>
+                    }
+                    <text>upload your first specification document to get started.</text>
+                </p>
+                <a href="/upload" class="btn btn-primary">Upload Document</a>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private IEnumerable<Document> allDocuments = new List<Document>();
+    private IEnumerable<Document> filteredDocuments = new List<Document>();
+    private string searchTerm = string.Empty;
+    private string protocolFilter = string.Empty;
+    private string statusFilter = string.Empty;
+    private bool isLoading = true;
+    private int pageSize = 10;
+    private int totalCount = 0;
+    private int processedCount = 0;
+    private int processingCount = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDocuments();
+    }
+
+    private async Task LoadDocuments()
+    {
+        try
+        {
+            isLoading = true;
+            allDocuments = await DocumentRepository.GetAllAsync();
+            
+            totalCount = allDocuments.Count();
+            processedCount = allDocuments.Count(d => d.Status == DocumentStatus.Processed);
+            processingCount = allDocuments.Count(d => d.Status == DocumentStatus.Processing);
+            
+            ApplyFilters();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading documents: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        filteredDocuments = allDocuments.AsEnumerable();
+
+        if (!string.IsNullOrEmpty(searchTerm))
+        {
+            filteredDocuments = filteredDocuments.Where(d =>
+                d.FileName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                (d.Manufacturer?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (d.DeviceName?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        if (!string.IsNullOrEmpty(protocolFilter))
+        {
+            filteredDocuments = filteredDocuments.Where(d => d.Protocol == protocolFilter);
+        }
+
+        if (!string.IsNullOrEmpty(statusFilter))
+        {
+            if (Enum.TryParse<DocumentStatus>(statusFilter, out var status))
+            {
+                filteredDocuments = filteredDocuments.Where(d => d.Status == status);
+            }
+        }
+
+        filteredDocuments = filteredDocuments.OrderByDescending(d => d.UploadedAt);
+    }
+
+    private Task OnSearchChanged(ChangeEventArgs e)
+    {
+        searchTerm = e.Value?.ToString() ?? string.Empty;
+        ApplyFilters();
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void OnFilterChanged()
+    {
+        ApplyFilters();
+        StateHasChanged();
+    }
+
+    private void ClearFilters()
+    {
+        searchTerm = string.Empty;
+        protocolFilter = string.Empty;
+        statusFilter = string.Empty;
+        ApplyFilters();
+        StateHasChanged();
+    }
+
+    private void LoadMore()
+    {
+        pageSize += 10;
+        StateHasChanged();
+    }
+
+    private void ViewDocument(int documentId)
+    {
+        Navigation.NavigateTo($"/documents/{documentId}");
+    }
+
+    private void CompareDocument(int documentId)
+    {
+        Navigation.NavigateTo($"/comparison?source={documentId}");
+    }
+
+    private async Task DeleteDocument(int documentId)
+    {
+        if (await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to delete this document?"))
+        {
+            try
+            {
+                await DocumentRepository.DeleteAsync(documentId);
+                await LoadDocuments();
+                StateHasChanged();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error deleting document: {ex.Message}");
+            }
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024:F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024 * 1024):F1} MB";
+        return $"{bytes / (1024 * 1024 * 1024):F1} GB";
+    }
+
+    private MarkupString GetStatusBadge(DocumentStatus status)
+    {
+        return status switch
+        {
+            DocumentStatus.Processed => new MarkupString("<span class=\"badge bg-success\"><i class=\"bi bi-check-circle me-1\"></i>Processed</span>"),
+            DocumentStatus.Processing => new MarkupString("<span class=\"badge bg-warning\"><i class=\"bi bi-hourglass-split me-1\"></i>Processing</span>"),
+            DocumentStatus.Failed => new MarkupString("<span class=\"badge bg-danger\"><i class=\"bi bi-x-circle me-1\"></i>Failed</span>"),
+            _ => new MarkupString("<span class=\"badge bg-secondary\"><i class=\"bi bi-clock me-1\"></i>Uploaded</span>")
+        };
+    }
+}

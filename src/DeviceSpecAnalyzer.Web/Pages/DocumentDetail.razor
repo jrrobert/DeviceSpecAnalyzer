@@ -1,0 +1,212 @@
+@page "/documents/{documentId:int}"
+@using DeviceSpecAnalyzer.Core.Interfaces
+@using DeviceSpecAnalyzer.Core.Models
+@inject IDocumentRepository DocumentRepository
+@inject NavigationManager Navigation
+
+<PageTitle>Document Details - Device Specification Analyzer</PageTitle>
+
+@if (document == null)
+{
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="text-muted mt-2">Loading document...</p>
+        </div>
+    }
+    else
+    {
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center py-5">
+                <i class="bi bi-file-earmark-x display-1 text-muted"></i>
+                <h4 class="mt-3">Document Not Found</h4>
+                <p class="text-muted">The requested document could not be found.</p>
+                <a href="/documents" class="btn btn-primary">Back to Documents</a>
+            </div>
+        </div>
+    }
+}
+else
+{
+    <div class="mb-4">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/documents">Documents</a></li>
+                <li class="breadcrumb-item active">@document.FileName</li>
+            </ol>
+        </nav>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-light">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="bi bi-file-earmark-pdf text-danger me-2"></i>
+                            @document.FileName
+                        </h5>
+                        <div>
+                            @GetStatusBadge(document.Status)
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <dl class="row">
+                                <dt class="col-sm-4">Protocol:</dt>
+                                <dd class="col-sm-8">@(document.Protocol ?? "Unknown")</dd>
+                                
+                                <dt class="col-sm-4">Manufacturer:</dt>
+                                <dd class="col-sm-8">@(document.Manufacturer ?? "Not specified")</dd>
+                                
+                                <dt class="col-sm-4">Device:</dt>
+                                <dd class="col-sm-8">@(document.DeviceName ?? "Not specified")</dd>
+                                
+                                <dt class="col-sm-4">Version:</dt>
+                                <dd class="col-sm-8">@(document.Version ?? "Not specified")</dd>
+                            </dl>
+                        </div>
+                        <div class="col-md-6">
+                            <dl class="row">
+                                <dt class="col-sm-4">File Size:</dt>
+                                <dd class="col-sm-8">@FormatFileSize(document.FileSizeBytes)</dd>
+                                
+                                <dt class="col-sm-4">Uploaded:</dt>
+                                <dd class="col-sm-8">@document.UploadedAt.ToString("MMM dd, yyyy HH:mm")</dd>
+                                
+                                <dt class="col-sm-4">Processed:</dt>
+                                <dd class="col-sm-8">@(document.ProcessedAt?.ToString("MMM dd, yyyy HH:mm") ?? "Not processed")</dd>
+                                
+                                <dt class="col-sm-4">Hash:</dt>
+                                <dd class="col-sm-8"><small class="text-muted">@(document.FileHash ?? "Not calculated")</small></dd>
+                            </dl>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(document.ProcessingError))
+                    {
+                        <div class="alert alert-danger mt-3">
+                            <i class="bi bi-exclamation-triangle me-2"></i>
+                            <strong>Processing Error:</strong> @document.ProcessingError
+                        </div>
+                    }
+
+                    @if (document.Content != null && !string.IsNullOrEmpty(document.Content.ExtractedText))
+                    {
+                        <div class="mt-4">
+                            <h6>Extracted Text Preview</h6>
+                            <div class="border rounded p-3" style="background-color: #f8f9fa; max-height: 300px; overflow-y: auto;">
+                                <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.875rem;">@document.Content.ExtractedText.Substring(0, Math.Min(1000, document.Content.ExtractedText.Length))@(document.Content.ExtractedText.Length > 1000 ? "..." : "")</pre>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0">Actions</h6>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        @if (document.Status == DocumentStatus.Processed)
+                        {
+                            <a href="/comparison?source=@document.Id" class="btn btn-primary">
+                                <i class="bi bi-columns-gap me-2"></i>Compare Document
+                            </a>
+                        }
+                        <button class="btn btn-outline-secondary" @onclick="DownloadDocument">
+                            <i class="bi bi-download me-2"></i>Download PDF
+                        </button>
+                        <button class="btn btn-outline-danger" @onclick="DeleteDocument">
+                            <i class="bi bi-trash me-2"></i>Delete Document
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            @if (document.Content != null && !string.IsNullOrEmpty(document.Content.Keywords))
+            {
+                <div class="card border-0 shadow-sm mt-3">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0">Keywords</h6>
+                    </div>
+                    <div class="card-body">
+                        @foreach (var keyword in document.Content.Keywords.Split(',', StringSplitOptions.RemoveEmptyEntries).Take(10))
+                        {
+                            <span class="badge bg-secondary me-1 mb-1">@keyword.Trim()</span>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int DocumentId { get; set; }
+    
+    private Document? document;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            document = await DocumentRepository.GetByIdAsync(DocumentId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading document {DocumentId}: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    private MarkupString GetStatusBadge(DocumentStatus status)
+    {
+        return status switch
+        {
+            DocumentStatus.Uploaded => new MarkupString("<span class=\"badge bg-secondary\">Uploaded</span>"),
+            DocumentStatus.Processing => new MarkupString("<span class=\"badge bg-warning\">Processing</span>"),
+            DocumentStatus.Processed => new MarkupString("<span class=\"badge bg-success\">Processed</span>"),
+            DocumentStatus.Failed => new MarkupString("<span class=\"badge bg-danger\">Failed</span>"),
+            _ => new MarkupString("<span class=\"badge bg-secondary\">Unknown</span>")
+        };
+    }
+
+    private void DownloadDocument()
+    {
+        // TODO: Implement document download
+        Console.WriteLine($"Download document {DocumentId}");
+    }
+
+    private void DeleteDocument()
+    {
+        // TODO: Implement document deletion with confirmation
+        Console.WriteLine($"Delete document {DocumentId}");
+        Navigation.NavigateTo("/documents");
+    }
+}

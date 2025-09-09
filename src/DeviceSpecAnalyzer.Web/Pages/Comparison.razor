@@ -1,0 +1,233 @@
+@page "/comparison"
+@using DeviceSpecAnalyzer.Core.Interfaces
+@using DeviceSpecAnalyzer.Core.Models
+@using Microsoft.AspNetCore.WebUtilities
+@inject IDocumentRepository DocumentRepository
+@inject ISimilarityCalculator SimilarityCalculator
+@inject NavigationManager Navigation
+
+<PageTitle>Compare Documents - Device Specification Analyzer</PageTitle>
+
+<div class="mb-4">
+    <h1 class="display-5">
+        <i class="bi bi-columns-gap text-primary"></i>
+        Document Comparison
+    </h1>
+    <p class="lead text-muted">Compare specification documents to find similarities and reusable components.</p>
+</div>
+
+@if (documents == null)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="text-muted mt-2">Loading documents...</p>
+    </div>
+}
+else if (documents.Count < 2)
+{
+    <div class="card border-0 shadow-sm">
+        <div class="card-body text-center py-5">
+            <i class="bi bi-files display-1 text-muted"></i>
+            <h4 class="mt-3">Need More Documents</h4>
+            <p class="text-muted">You need at least 2 documents to compare. Currently have: @documents.Count</p>
+            <a href="/upload" class="btn btn-primary">Upload More Documents</a>
+        </div>
+    </div>
+}
+else
+{
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">First Document</h5>
+                </div>
+                <div class="card-body">
+                    @if (selectedDoc1 != null)
+                    {
+                        <div class="alert alert-info">
+                            <strong>Selected:</strong> @selectedDoc1.FileName
+                            <button class="btn btn-sm btn-outline-secondary float-end" @onclick="() => selectedDoc1 = null">Change</button>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var doc in processedDocuments)
+                        {
+                            <div class="d-grid gap-2 mb-2">
+                                <button class="btn btn-outline-primary text-start" @onclick="() => selectedDoc1 = doc">
+                                    <div>
+                                        <strong>@doc.FileName</strong><br/>
+                                        <small class="text-muted">Protocol: @(doc.Protocol ?? "Unknown")</small>
+                                    </div>
+                                </button>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">Second Document</h5>
+                </div>
+                <div class="card-body">
+                    @if (selectedDoc1 == null)
+                    {
+                        <p class="text-muted">Please select the first document first.</p>
+                    }
+                    else
+                    {
+                        @foreach (var doc in processedDocuments.Where(d => d.Id != selectedDoc1.Id))
+                        {
+                            <div class="d-grid gap-2 mb-2">
+                                <button class="btn btn-outline-primary text-start" @onclick="() => selectedDoc2 = doc">
+                                    <div>
+                                        <strong>@doc.FileName</strong><br/>
+                                        <small class="text-muted">Protocol: @(doc.Protocol ?? "Unknown")</small>
+                                    </div>
+                                </button>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    @if (selectedDoc1 != null && selectedDoc2 != null)
+    {
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Ready to Compare</h5>
+                            <button class="btn btn-light btn-sm" @onclick="CompareDocuments" disabled="@isComparing">
+                                @if (isComparing)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                    <text>Analyzing...</text>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-arrow-repeat me-2"></i>
+                                    <text>Compare</text>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        @if (similarityResult != null)
+                        {
+                            <div class="text-center mb-4">
+                                <h2 class="text-primary">@((similarityResult.OverallSimilarityScore * 100).ToString("F1"))%</h2>
+                                <p class="text-muted">Similarity Score</p>
+                                <div class="progress" style="height: 12px;">
+                                    <div class="progress-bar" style="width: @((similarityResult.OverallSimilarityScore * 100).ToString("F1"))%"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>@selectedDoc1.FileName</h6>
+                                    <small class="text-muted">@selectedDoc1.Protocol | @selectedDoc1.FileSizeBytes bytes</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6>@selectedDoc2.FileName</h6>
+                                    <small class="text-muted">@selectedDoc2.Protocol | @selectedDoc2.FileSizeBytes bytes</small>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-3">
+                                @if (similarityResult.OverallSimilarityScore > 0.7)
+                                {
+                                    <div class="alert alert-success">
+                                        <i class="bi bi-check-circle me-2"></i>
+                                        <strong>High Similarity!</strong> These documents have significant overlap. Consider reusing existing driver components.
+                                    </div>
+                                }
+                                else if (similarityResult.OverallSimilarityScore > 0.4)
+                                {
+                                    <div class="alert alert-warning">
+                                        <i class="bi bi-exclamation-triangle me-2"></i>
+                                        <strong>Moderate Similarity.</strong> Some common elements found. Review for potential code reuse.
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="alert alert-info">
+                                        <i class="bi bi-info-circle me-2"></i>
+                                        <strong>Low Similarity.</strong> These documents use different approaches. New driver implementation likely needed.
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-center text-muted py-3">Click "Compare" to analyze similarity between the selected documents.</p>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private List<Document>? documents;
+    private List<Document> processedDocuments => documents?.Where(d => d.Status == DocumentStatus.Processed).ToList() ?? new();
+    
+    private Document? selectedDoc1;
+    private Document? selectedDoc2;
+    private SimilarityResult? similarityResult;
+    private bool isComparing = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            documents = (await DocumentRepository.GetAllAsync()).ToList();
+            
+            // Check for pre-selected document from query parameter
+            var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+            if (QueryHelpers.ParseQuery(uri.Query).TryGetValue("source", out var sourceId))
+            {
+                if (int.TryParse(sourceId, out var id))
+                {
+                    selectedDoc1 = documents.FirstOrDefault(d => d.Id == id);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading documents: {ex.Message}");
+            documents = new List<Document>();
+        }
+    }
+
+    private async Task CompareDocuments()
+    {
+        if (selectedDoc1 == null || selectedDoc2 == null) return;
+        
+        isComparing = true;
+        similarityResult = null;
+        
+        try
+        {
+            similarityResult = await SimilarityCalculator.CompareDocumentsAsync(selectedDoc1, selectedDoc2);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error comparing documents: {ex.Message}");
+        }
+        finally
+        {
+            isComparing = false;
+        }
+    }
+}

@@ -1,0 +1,381 @@
+@page "/upload"
+@using DeviceSpecAnalyzer.Core.Interfaces
+@using Microsoft.AspNetCore.Components.Forms
+@inject IDocumentProcessor DocumentProcessor
+@inject IWebHostEnvironment Environment
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Upload Document - Device Specification Analyzer</PageTitle>
+
+<div class="mb-4">
+    <h1 class="display-5">
+        <i class="bi bi-cloud-upload text-primary"></i>
+        Upload Document
+    </h1>
+    <p class="lead text-muted">Upload PDF specification documents for analysis and comparison.</p>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <EditForm Model="@uploadModel" OnValidSubmit="@HandleValidSubmit">
+                    <DataAnnotationsValidator />
+                    
+                    <div class="mb-4">
+                        <label class="form-label fw-semibold">Select PDF Files</label>
+                        <div class="drop-zone @(isDragOver ? "drag-over" : "")" 
+                             @ondrop="HandleDrop" 
+                             @ondragover="HandleDragOver" 
+                             @ondragenter="HandleDragEnter"
+                             @ondragleave="HandleDragLeave">
+                            
+                            <InputFile OnChange="@HandleFileSelected" 
+                                     class="file-input" 
+                                     multiple 
+                                     accept=".pdf" />
+                            
+                            <div class="drop-zone-content">
+                                <i class="bi bi-cloud-upload display-1 text-muted"></i>
+                                <h5 class="mt-3">Drop PDF files here or click to browse</h5>
+                                <p class="text-muted mb-0">Supported formats: PDF (max 50MB per file)</p>
+                            </div>
+                        </div>
+                        
+                        <ValidationMessage For="@(() => uploadModel.Files)" class="text-danger" />
+                    </div>
+
+                    @if (selectedFiles.Any())
+                    {
+                        <div class="mb-4">
+                            <h6 class="fw-semibold mb-3">Selected Files (@selectedFiles.Count)</h6>
+                            <div class="list-group">
+                                @foreach (var (file, index) in selectedFiles.Select((f, i) => (f, i)))
+                                {
+                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-file-earmark-pdf text-danger me-2"></i>
+                                            <div>
+                                                <div class="fw-medium">@file.Name</div>
+                                                <small class="text-muted">@FormatFileSize(file.Size)</small>
+                                            </div>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            @if (uploadResults.ContainsKey(index))
+                                            {
+                                                var result = uploadResults[index];
+                                                @if (result.IsSuccess)
+                                                {
+                                                    <span class="badge bg-success">
+                                                        <i class="bi bi-check-circle me-1"></i>Success
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-danger">
+                                                        <i class="bi bi-x-circle me-1"></i>Failed
+                                                    </span>
+                                                }
+                                            }
+                                            else if (isProcessing && processingFiles.Contains(index))
+                                            {
+                                                <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                                    <span class="visually-hidden">Loading...</span>
+                                                </div>
+                                            }
+                                            
+                                            <button type="button" 
+                                                    class="btn btn-sm btn-outline-danger" 
+                                                    @onclick="() => RemoveFile(index)"
+                                                    disabled="@isProcessing">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    <div class="mb-4">
+                        <label class="form-label fw-semibold">Additional Information (Optional)</label>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Manufacturer</label>
+                                <InputText @bind-Value="uploadModel.Manufacturer" 
+                                         class="form-control" 
+                                         placeholder="e.g., Abbott, Siemens" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Device Name</label>
+                                <InputText @bind-Value="uploadModel.DeviceName" 
+                                         class="form-control" 
+                                         placeholder="e.g., Afinion 2, i-STAT" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Protocol</label>
+                                <InputSelect @bind-Value="uploadModel.Protocol" class="form-select">
+                                    <option value="">Auto-detect</option>
+                                    <option value="POCT1-A">POCT1-A</option>
+                                    <option value="ASTM">ASTM</option>
+                                    <option value="HL7">HL7</option>
+                                </InputSelect>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Version</label>
+                                <InputText @bind-Value="uploadModel.Version" 
+                                         class="form-control" 
+                                         placeholder="e.g., 2.1, 1.4" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            @if (selectedFiles.Any())
+                            {
+                                <small class="text-muted">@selectedFiles.Count file(s) selected</small>
+                            }
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="button" 
+                                    class="btn btn-outline-secondary" 
+                                    @onclick="ClearFiles"
+                                    disabled="@isProcessing">
+                                Clear All
+                            </button>
+                            <button type="submit" 
+                                    class="btn btn-primary" 
+                                    disabled="@(isProcessing || !selectedFiles.Any())">
+                                @if (isProcessing)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </span>
+                                }
+                                <i class="bi bi-upload me-2"></i>
+                                Upload & Process
+                            </button>
+                        </div>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-light">
+                <h6 class="card-title mb-0">
+                    <i class="bi bi-info-circle me-2"></i>Upload Guidelines
+                </h6>
+            </div>
+            <div class="card-body">
+                <ul class="list-unstyled mb-0">
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success me-2"></i>
+                        <small>PDF files only</small>
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success me-2"></i>
+                        <small>Maximum 50MB per file</small>
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success me-2"></i>
+                        <small>Multiple file upload supported</small>
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-check-circle text-success me-2"></i>
+                        <small>Automatic protocol detection</small>
+                    </li>
+                    <li class="mb-0">
+                        <i class="bi bi-check-circle text-success me-2"></i>
+                        <small>Text extraction and analysis</small>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        @if (uploadResults.Any())
+        {
+            <div class="card border-0 shadow-sm mt-4">
+                <div class="card-header bg-light">
+                    <h6 class="card-title mb-0">
+                        <i class="bi bi-list-check me-2"></i>Upload Results
+                    </h6>
+                </div>
+                <div class="card-body">
+                    @foreach (var result in uploadResults.Values)
+                    {
+                        <div class="d-flex align-items-start mb-2">
+                            @if (result.IsSuccess)
+                            {
+                                <i class="bi bi-check-circle text-success me-2 mt-1"></i>
+                                <div>
+                                    <div class="fw-medium text-success">Success</div>
+                                    <small class="text-muted">Document processed successfully</small>
+                                </div>
+                            }
+                            else
+                            {
+                                <i class="bi bi-x-circle text-danger me-2 mt-1"></i>
+                                <div>
+                                    <div class="fw-medium text-danger">Failed</div>
+                                    <small class="text-muted">@result.ErrorMessage</small>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private UploadModel uploadModel = new();
+    private List<IBrowserFile> selectedFiles = new();
+    private Dictionary<int, ProcessingResult> uploadResults = new();
+    private HashSet<int> processingFiles = new();
+    private bool isProcessing = false;
+    private bool isDragOver = false;
+
+    private Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        var newFiles = e.GetMultipleFiles(10).Where(f => 
+            Path.GetExtension(f.Name).Equals(".pdf", StringComparison.OrdinalIgnoreCase) &&
+            f.Size <= 50 * 1024 * 1024);
+        
+        selectedFiles.AddRange(newFiles);
+        uploadModel.Files = selectedFiles;
+        StateHasChanged();
+        
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        if (!selectedFiles.Any()) return;
+
+        isProcessing = true;
+        uploadResults.Clear();
+        processingFiles.Clear();
+
+        try
+        {
+            var tempDirectory = Path.Combine(Environment.ContentRootPath, "temp");
+            Directory.CreateDirectory(tempDirectory);
+
+            for (int i = 0; i < selectedFiles.Count; i++)
+            {
+                var file = selectedFiles[i];
+                processingFiles.Add(i);
+                StateHasChanged();
+
+                try
+                {
+                    var tempFilePath = Path.Combine(tempDirectory, $"{Guid.NewGuid()}{Path.GetExtension(file.Name)}");
+                    
+                    using (var stream = file.OpenReadStream(50 * 1024 * 1024))
+                    using (var fileStream = new FileStream(tempFilePath, FileMode.Create))
+                    {
+                        await stream.CopyToAsync(fileStream);
+                    }
+
+                    var result = await DocumentProcessor.ProcessDocumentAsync(tempFilePath);
+                    uploadResults[i] = result;
+
+                    if (File.Exists(tempFilePath))
+                    {
+                        File.Delete(tempFilePath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    uploadResults[i] = new ProcessingResult
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = ex.Message
+                    };
+                }
+                finally
+                {
+                    processingFiles.Remove(i);
+                    StateHasChanged();
+                }
+            }
+        }
+        finally
+        {
+            isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void RemoveFile(int index)
+    {
+        if (index >= 0 && index < selectedFiles.Count)
+        {
+            selectedFiles.RemoveAt(index);
+            uploadModel.Files = selectedFiles;
+            
+            var newResults = new Dictionary<int, ProcessingResult>();
+            foreach (var kvp in uploadResults)
+            {
+                var newIndex = kvp.Key > index ? kvp.Key - 1 : kvp.Key;
+                if (newIndex >= 0)
+                {
+                    newResults[newIndex] = kvp.Value;
+                }
+            }
+            uploadResults = newResults;
+        }
+    }
+
+    private void ClearFiles()
+    {
+        selectedFiles.Clear();
+        uploadResults.Clear();
+        processingFiles.Clear();
+        uploadModel = new UploadModel();
+    }
+
+    private void HandleDragOver(DragEventArgs e)
+    {
+        isDragOver = true;
+    }
+
+    private void HandleDragEnter(DragEventArgs e)
+    {
+        isDragOver = true;
+    }
+
+    private void HandleDragLeave(DragEventArgs e)
+    {
+        isDragOver = false;
+    }
+
+    private Task HandleDrop(DragEventArgs e)
+    {
+        isDragOver = false;
+        // Note: File drop handling would require JavaScript interop for full functionality
+        return Task.CompletedTask;
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024:F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024 * 1024):F1} MB";
+        return $"{bytes / (1024 * 1024 * 1024):F1} GB";
+    }
+
+    public class UploadModel
+    {
+        public List<IBrowserFile> Files { get; set; } = new();
+        public string? Manufacturer { get; set; }
+        public string? DeviceName { get; set; }
+        public string? Protocol { get; set; }
+        public string? Version { get; set; }
+    }
+}
