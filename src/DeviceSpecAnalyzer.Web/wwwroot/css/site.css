@@ -91,7 +91,7 @@ main {
     background: linear-gradient(to right, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0));
 }
 
-.nav-link {
+.sidebar .nav-link {
     color: rgba(255, 255, 255, 0.8);
     line-height: 3rem;
     height: 3rem;
@@ -100,17 +100,17 @@ main {
     transition: all 0.2s;
 }
 
-.nav-link:hover {
+.sidebar .nav-link:hover {
     color: white;
     background: rgba(255, 255, 255, 0.1);
 }
 
-.nav-link.active {
+.sidebar .nav-link.active {
     color: white;
     background: rgba(255, 255, 255, 0.15);
 }
 
-.nav-link .bi {
+.sidebar .nav-link .bi {
     width: 2rem;
     font-size: 1.1rem;
     vertical-align: text-top;

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity.UI.Services;
 using DeviceSpecAnalyzer.Core.Interfaces;
+using DeviceSpecAnalyzer.Core.Services;
 using DeviceSpecAnalyzer.Data;
 using DeviceSpecAnalyzer.Data.Repositories;
 using DeviceSpecAnalyzer.Processing.Services;
@@ -37,6 +38,8 @@ builder.Services.AddScoped<IPdfTextExtractor, PdfTextExtractor>();
 builder.Services.AddScoped<ITfIdfVectorizer, TfIdfVectorizer>();
 builder.Services.AddScoped<ISimilarityCalculator, SimilarityCalculator>();
 builder.Services.AddScoped<IDocumentProcessor, DocumentProcessor>();
+builder.Services.AddScoped<IMessageParsingService, MessageParsingService>();
+builder.Services.AddScoped<IMessageProfileService, MessageProfileService>();
 
 // Register protocol parsers
 builder.Services.AddScoped<IProtocolParser, Poct1AParser>();

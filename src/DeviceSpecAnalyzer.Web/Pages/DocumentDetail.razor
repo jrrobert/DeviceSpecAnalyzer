@@ -1,7 +1,12 @@
 @page "/documents/{documentId:int}"
 @using DeviceSpecAnalyzer.Core.Interfaces
 @using DeviceSpecAnalyzer.Core.Models
+@using DeviceSpecAnalyzer.Core.Services
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
 @inject IDocumentRepository DocumentRepository
+@inject IMessageParsingService MessageParsingService
+@inject IMessageProfileService MessageProfileService
 @inject NavigationManager Navigation
 
 <PageTitle>Document Details - Device Specification Analyzer</PageTitle>
@@ -38,6 +43,18 @@ else
                 <li class="breadcrumb-item active">@document.FileName</li>
             </ol>
         </nav>
+    </div>
+    
+    <!-- TEST BUTTON - OUTSIDE TABS -->
+    <div class="alert alert-info mb-4">
+        <h5>Blazor Event Test</h5>
+        <button class="btn btn-primary me-2" @onclick="TestBlazorEvent">
+            Test Blazor Click Event
+        </button>
+        <span class="badge bg-secondary">Click Count: @testClickCount</span>
+        <div class="mt-2 small text-muted">
+            This button tests if Blazor events work at all on this page. If clicking it doesn't increase the counter, there's a fundamental Blazor connection issue.
+        </div>
     </div>
 
     <div class="row">
@@ -98,11 +115,449 @@ else
 
                     @if (document.Content != null && !string.IsNullOrEmpty(document.Content.ExtractedText))
                     {
-                        <div class="mt-4">
-                            <h6>Extracted Text Preview</h6>
-                            <div class="border rounded p-3" style="background-color: #f8f9fa; max-height: 300px; overflow-y: auto;">
-                                <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.875rem;">@document.Content.ExtractedText.Substring(0, Math.Min(1000, document.Content.ExtractedText.Length))@(document.Content.ExtractedText.Length > 1000 ? "..." : "")</pre>
-                            </div>
+                        <ul class="nav nav-tabs mt-4" id="contentTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link @(activeTab == "preview" ? "active" : "")" type="button" role="tab" @onclick="@(() => SwitchTab("preview"))">
+                                    <i class="bi bi-eye me-1"></i>Text Preview
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link @(activeTab == "messages" ? "active" : "")" type="button" role="tab" @onclick="@(() => SwitchTab("messages"))">
+                                    <i class="bi bi-diagram-3 me-1"></i>Message Breakdown
+                                </button>
+                            </li>
+                        </ul>
+
+                        <div class="tab-content" id="contentTabsContent">
+                            @if (activeTab == "preview")
+                            {
+                                <div class="tab-pane fade show active" id="preview" role="tabpanel">
+                                    <div class="border rounded p-3 mt-3" style="background-color: #f8f9fa; max-height: 400px; overflow-y: auto;">
+                                        <pre class="mb-0" style="white-space: pre-wrap; font-size: 0.875rem;">@document.Content.ExtractedText.Substring(0, Math.Min(1000, document.Content.ExtractedText.Length))@(document.Content.ExtractedText.Length > 1000 ? "..." : "")</pre>
+                                    </div>
+                                </div>
+                            }
+                            @if (activeTab == "messages")
+                            {
+                                <div class="tab-pane fade show active" id="messages" role="tabpanel">
+                                <div class="mt-3">
+                                    @if (isLoadingMessages)
+                                    {
+                                        <div class="text-center py-4">
+                                            <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                                            <span class="ms-2">Analyzing messages...</span>
+                                        </div>
+                                    }
+                                    else if (parsedMessages.Any())
+                                    {
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <div class="card border-0 bg-light">
+                                                    <div class="card-header">
+                                                        <div class="d-flex justify-content-between align-items-center">
+                                                            <h6 class="mb-0">
+                                                                @if (parsingResult?.DocumentType == DocumentType.Specification)
+                                                                {
+                                                                    <text>Message Catalog</text>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <text>Found Messages</text>
+                                                                }
+                                                            </h6>
+                                                            <small class="text-muted">
+                                                                @if (parsingResult != null)
+                                                                {
+                                                                    @if (parsingResult.DocumentType == DocumentType.Specification)
+                                                                    {
+                                                                        <text>@parsedMessages.Count types (@parsingResult.TotalExamples examples)</text>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <text>@parsedMessages.Count messages</text>
+                                                                    }
+                                                                }
+                                                            </small>
+                                                        </div>
+                                                        @if (parsingResult?.DocumentType == DocumentType.Specification)
+                                                        {
+                                                            <small class="text-muted d-block mt-1">@parsingResult.AnalysisSummary</small>
+                                                        }
+                                                    </div>
+                                                    <div style="max-height: 400px; overflow-y: auto;">
+                                                        @for (int i = 0; i < parsedMessages.Count; i++)
+                                                        {
+                                                            var index = i;
+                                                            var message = parsedMessages[index];
+                                                            <div class="p-3 border-bottom @(selectedMessageIndex == index ? "bg-primary text-white" : "bg-white")" 
+                                                                 @onclick="@(() => { Console.WriteLine($"[CLICK] Div clicked for index {index}"); SelectMessage(index); })" 
+                                                                 @onclick:preventDefault="true"
+                                                                 @onclick:stopPropagation="true"
+                                                                 style="cursor: pointer;">
+                                                                @{
+                                                                    var profile = message.Profile;
+                                                                }
+                                                                <div class="d-flex w-100 justify-content-between align-items-start">
+                                                                    <div>
+                                                                        <div class="d-flex align-items-center mb-1">
+                                                                            @if (profile != null)
+                                                                            {
+                                                                                <span class="me-2">@MessageProfileService.GetDirectionIcon(profile.Direction)</span>
+                                                                                <h6 class="mb-0">@profile.Name</h6>
+                                                                            }
+                                                                            else
+                                                                            {
+                                                                                <h6 class="mb-0">@message.MessageType</h6>
+                                                                            }
+                                                                        </div>
+                                                                        @if (profile != null)
+                                                                        {
+                                                                            <div class="mb-1">
+                                                                                <span class="badge @(selectedMessageIndex == index ? "bg-white text-dark" : MessageProfileService.GetCategoryBadgeClass(profile.Category)) me-1">@profile.Category</span>
+                                                                                <small class="@(selectedMessageIndex == index ? "text-white-50" : "text-muted")">@message.Protocol</small>
+                                                                            </div>
+                                                                            <p class="mb-1 small @(selectedMessageIndex == index ? "text-white-50" : "text-muted")">@profile.Description</p>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <p class="mb-1">@(message.Segments.Count) segments</p>
+                                                                        }
+                                                                    </div>
+                                                                    <div class="text-end">
+                                                                        <div>
+                                                                            <small class="@(selectedMessageIndex == index ? "text-white-50" : "text-muted")">@message.MessageType</small>
+                                                                        </div>
+                                                                        @if (parsingResult?.DocumentType == DocumentType.Specification && message.Examples.Any())
+                                                                        {
+                                                                            <div class="mt-1">
+                                                                                <span class="badge @(selectedMessageIndex == index ? "bg-white text-dark" : "bg-info") small">@(message.Examples.Count + 1) examples</span>
+                                                                            </div>
+                                                                        }
+                                                                    </div>
+                                                                </div>
+                                                                @if (message.Errors.Any())
+                                                                {
+                                                                    <small class="@(selectedMessageIndex == index ? "text-white" : "text-danger")">@message.Errors.Count error(s)</small>
+                                                                }
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-8">
+                                                @if (selectedMessage != null)
+                                                {
+                                                    <div class="card border-0">
+                                                        <div class="card-header">
+                                                            @{
+                                                                var selectedProfile = selectedMessage.Profile;
+                                                            }
+                                                            @if (selectedProfile != null)
+                                                            {
+                                                                <div class="d-flex justify-content-between align-items-start">
+                                                                    <div>
+                                                                        <div class="d-flex align-items-center mb-1">
+                                                                            <span class="me-2">@MessageProfileService.GetDirectionIcon(selectedProfile.Direction)</span>
+                                                                            <h6 class="mb-0">@selectedProfile.Name</h6>
+                                                                        </div>
+                                                                        <div class="d-flex align-items-center">
+                                                                            <span class="badge @MessageProfileService.GetCategoryBadgeClass(selectedProfile.Category) me-2">@selectedProfile.Category</span>
+                                                                            <small class="text-muted">@selectedMessage.MessageType</small>
+                                                                        </div>
+                                                                    </div>
+                                                                    <span class="badge bg-@(selectedMessage.Protocol == ProtocolType.POCT1A ? "info" : "warning")">@selectedMessage.Protocol</span>
+                                                                </div>
+                                                                @if (!string.IsNullOrEmpty(selectedProfile.Purpose))
+                                                                {
+                                                                    <div class="mt-2">
+                                                                        <small class="text-muted"><strong>Purpose:</strong> @selectedProfile.Purpose</small>
+                                                                    </div>
+                                                                }
+                                                            }
+                                                            else
+                                                            {
+                                                                <div class="d-flex justify-content-between align-items-center">
+                                                                    <h6 class="mb-0">@selectedMessage.MessageType</h6>
+                                                                    <span class="badge bg-@(selectedMessage.Protocol == ProtocolType.POCT1A ? "info" : "warning")">@selectedMessage.Protocol</span>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                        <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                                                            @if (selectedMessage.Errors.Any())
+                                                            {
+                                                                <div class="alert alert-warning alert-sm mb-3">
+                                                                    @foreach (var error in selectedMessage.Errors)
+                                                                    {
+                                                                        <div>• @error</div>
+                                                                    }
+                                                                </div>
+                                                            }
+                                                            
+                                                            @if (parsingResult?.DocumentType == DocumentType.Specification)
+                                                            {
+                                                                <!-- Tabs for specification view -->
+                                                                <ul class="nav nav-tabs nav-tabs-sm mb-3">
+                                                                    <li class="nav-item">
+                                                                        <button class="nav-link @(selectedExampleTab == "profile" ? "active" : "")" @onclick="@(() => selectedExampleTab = "profile")">
+                                                                            Profile
+                                                                        </button>
+                                                                    </li>
+                                                                    <li class="nav-item">
+                                                                        <button class="nav-link @(selectedExampleTab == "examples" ? "active" : "")" @onclick="@(() => selectedExampleTab = "examples")">
+                                                                            Examples (@(selectedMessage.Examples.Count + 1))
+                                                                        </button>
+                                                                    </li>
+                                                                    <li class="nav-item">
+                                                                        <button class="nav-link @(selectedExampleTab == "fields" ? "active" : "")" @onclick="@(() => selectedExampleTab = "fields")">
+                                                                            Fields
+                                                                        </button>
+                                                                    </li>
+                                                                </ul>
+                                                            }
+                                                            
+                                                            @if (parsingResult?.DocumentType == DocumentType.Specification)
+                                                            {
+                                                                <!-- Tab content for specifications -->
+                                                                @if (selectedExampleTab == "profile")
+                                                                {
+                                                                    @{
+                                                                        var selectedProfile = selectedMessage.Profile;
+                                                                    }
+                                                                    @if (selectedProfile != null)
+                                                                    {
+                                                                        <div class="card bg-light mb-3">
+                                                                            <div class="card-header py-2">
+                                                                                <h6 class="mb-0 small">Message Profile</h6>
+                                                                            </div>
+                                                                            <div class="card-body py-2">
+                                                                                <div class="row mb-2">
+                                                                                    <div class="col-md-3"><strong>Purpose:</strong></div>
+                                                                                    <div class="col-md-9">@selectedProfile.Purpose</div>
+                                                                                </div>
+                                                                                <div class="row mb-2">
+                                                                                    <div class="col-md-3"><strong>Direction:</strong></div>
+                                                                                    <div class="col-md-9">
+                                                                                        @MessageProfileService.GetDirectionIcon(selectedProfile.Direction) @selectedProfile.Direction
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div class="row mb-2">
+                                                                                    <div class="col-md-3"><strong>Category:</strong></div>
+                                                                                    <div class="col-md-9">
+                                                                                        <span class="badge @MessageProfileService.GetCategoryBadgeClass(selectedProfile.Category)">@selectedProfile.Category</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                                @if (selectedProfile.KeyFields.Any())
+                                                                                {
+                                                                                    <div class="row mb-2">
+                                                                                        <div class="col-md-3"><strong>Key Fields:</strong></div>
+                                                                                        <div class="col-md-9">
+                                                                                            @foreach (var field in selectedProfile.KeyFields)
+                                                                                            {
+                                                                                                <span class="badge bg-secondary me-1">@field</span>
+                                                                                            }
+                                                                                        </div>
+                                                                                    </div>
+                                                                                }
+                                                                                @if (selectedProfile.RelatedMessages.Any())
+                                                                                {
+                                                                                    <div class="row mb-2">
+                                                                                        <div class="col-md-3"><strong>Related Messages:</strong></div>
+                                                                                        <div class="col-md-9">
+                                                                                            @foreach (var msg in selectedProfile.RelatedMessages)
+                                                                                            {
+                                                                                                <span class="badge bg-info me-1">@msg</span>
+                                                                                            }
+                                                                                        </div>
+                                                                                    </div>
+                                                                                }
+                                                                                <div class="row mb-2">
+                                                                                    <div class="col-md-3"><strong>Conversation Starter:</strong></div>
+                                                                                    <div class="col-md-9">@(selectedProfile.IsConversationStarter ? "Yes" : "No")</div>
+                                                                                </div>
+                                                                                <div class="row">
+                                                                                    <div class="col-md-3"><strong>Requires ACK:</strong></div>
+                                                                                    <div class="col-md-9">@(selectedProfile.RequiresAcknowledgment ? "Yes" : "No")</div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    }
+                                                                    @if (selectedMessage.KeyValues != null && selectedMessage.KeyValues.Any())
+                                                                    {
+                                                                        <div class="card bg-light mb-3">
+                                                                            <div class="card-header py-2">
+                                                                                <h6 class="mb-0 small">Key Values</h6>
+                                                                            </div>
+                                                                            <div class="card-body py-2">
+                                                                                <div class="row">
+                                                                                    @foreach (var kv in selectedMessage.KeyValues)
+                                                                                    {
+                                                                                        <div class="col-md-6 mb-1">
+                                                                                            <small class="text-muted">@kv.Key:</small>
+                                                                                            <div><strong>@kv.Value</strong></div>
+                                                                                        </div>
+                                                                                    }
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    }
+                                                                }
+                                                                else if (selectedExampleTab == "examples")
+                                                                {
+                                                                    <div class="mb-3">
+                                                                        <h6 class="mb-3">Message Examples (@(selectedMessage.Examples.Count + 1) total)</h6>
+                                                                        
+                                                                        <!-- Main example -->
+                                                                        <div class="card mb-2">
+                                                                            <div class="card-header py-2">
+                                                                                <small class="fw-bold">Example 1 (Primary)</small>
+                                                                            </div>
+                                                                            <div class="card-body py-2">
+                                                                                <pre class="small mb-0" style="max-height: 200px; overflow-y: auto;">@selectedMessage.RawContent</pre>
+                                                                            </div>
+                                                                        </div>
+                                                                        
+                                                                        <!-- Additional examples -->
+                                                                        @for (int i = 0; i < selectedMessage.Examples.Count; i++)
+                                                                        {
+                                                                            var example = selectedMessage.Examples[i];
+                                                                            <div class="card mb-2">
+                                                                                <div class="card-header py-2">
+                                                                                    <small class="fw-bold">Example @(i + 2)</small>
+                                                                                </div>
+                                                                                <div class="card-body py-2">
+                                                                                    <pre class="small mb-0" style="max-height: 200px; overflow-y: auto;">@example.RawContent</pre>
+                                                                                </div>
+                                                                            </div>
+                                                                        }
+                                                                    </div>
+                                                                }
+                                                            }
+                                                            else if (selectedMessage.KeyValues != null && selectedMessage.KeyValues.Any())
+                                                            {
+                                                                <!-- Traditional key values for non-specification documents -->
+                                                                <div class="card bg-light mb-3">
+                                                                    <div class="card-header py-2">
+                                                                        <h6 class="mb-0 small">Key Values</h6>
+                                                                    </div>
+                                                                    <div class="card-body py-2">
+                                                                        <div class="row">
+                                                                            @foreach (var kv in selectedMessage.KeyValues)
+                                                                            {
+                                                                                <div class="col-md-6 mb-1">
+                                                                                    <small class="text-muted">@kv.Key:</small>
+                                                                                    <div><strong>@kv.Value</strong></div>
+                                                                                </div>
+                                                                            }
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                            
+                                                            @if (parsingResult?.DocumentType == DocumentType.Specification && selectedExampleTab == "fields")
+                                                            {
+                                                                <!-- Fields tab for specifications -->
+                                                                @foreach (var segment in selectedMessage.Segments)
+                                                                {
+                                                                    <div class="mb-4">
+                                                                        <h6 class="border-bottom pb-2">
+                                                                            <span class="badge bg-secondary me-2">@segment.SegmentId</span>
+                                                                            @segment.Name
+                                                                        </h6>
+                                                                        @if (!string.IsNullOrEmpty(segment.Description))
+                                                                        {
+                                                                            <p class="text-muted small mb-3">@segment.Description</p>
+                                                                        }
+                                                                        <div class="table-responsive">
+                                                                            <table class="table table-sm table-hover">
+                                                                                <thead class="table-light">
+                                                                                    <tr>
+                                                                                        <th style="width: 25%">Field</th>
+                                                                                        <th style="width: 35%">Value</th>
+                                                                                        <th>Description</th>
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody>
+                                                                                    @foreach (var field in segment.Fields.Where(f => !string.IsNullOrWhiteSpace(f.Value)))
+                                                                                    {
+                                                                                        <tr>
+                                                                                            <td>
+                                                                                                <code class="small">@field.FieldId</code>
+                                                                                                @if (field.IsRequired)
+                                                                                                {
+                                                                                                    <span class="text-danger">*</span>
+                                                                                                }
+                                                                                            </td>
+                                                                                            <td><strong>@field.Value</strong></td>
+                                                                                            <td class="text-muted small">@field.Description</td>
+                                                                                        </tr>
+                                                                                    }
+                                                                                </tbody>
+                                                                            </table>
+                                                                        </div>
+                                                                    </div>
+                                                                }
+                                                            }
+                                                            else if (parsingResult?.DocumentType != DocumentType.Specification)
+                                                            {
+                                                                <!-- Traditional segments view for non-specification documents -->
+                                                                @foreach (var segment in selectedMessage.Segments)
+                                                            {
+                                                                <div class="mb-4">
+                                                                    <h6 class="border-bottom pb-2">
+                                                                        <span class="badge bg-secondary me-2">@segment.SegmentId</span>
+                                                                        @segment.Name
+                                                                    </h6>
+                                                                    @if (!string.IsNullOrEmpty(segment.Description))
+                                                                    {
+                                                                        <p class="text-muted small mb-3">@segment.Description</p>
+                                                                    }
+                                                                    <div class="table-responsive">
+                                                                        <table class="table table-sm table-hover">
+                                                                            <thead class="table-light">
+                                                                                <tr>
+                                                                                    <th style="width: 25%">Field</th>
+                                                                                    <th style="width: 35%">Value</th>
+                                                                                    <th>Description</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody>
+                                                                                @foreach (var field in segment.Fields.Where(f => !string.IsNullOrWhiteSpace(f.Value)))
+                                                                                {
+                                                                                    <tr>
+                                                                                        <td>
+                                                                                            <code class="small">@field.FieldId</code>
+                                                                                            @if (field.IsRequired)
+                                                                                            {
+                                                                                                <span class="text-danger">*</span>
+                                                                                            }
+                                                                                        </td>
+                                                                                        <td><strong>@field.Value</strong></td>
+                                                                                        <td class="text-muted small">@field.Description</td>
+                                                                                    </tr>
+                                                                                }
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="text-center py-5">
+                                            <i class="bi bi-diagram-3 display-4 text-muted"></i>
+                                            <h5 class="text-muted mt-3">No Messages Found</h5>
+                                            <p class="text-muted">This document doesn't contain recognizable POCT1-A or ASTM message formats.</p>
+                                        </div>
+                                    }
+                                </div>
+                                </div>
+                            }
                         </div>
                     }
                 </div>
@@ -155,20 +610,140 @@ else
     
     private Document? document;
     private bool isLoading = true;
+    private bool isLoadingMessages = false;
+    private List<ParsedMessage> parsedMessages = new();
+    private DocumentParsingResult? parsingResult;
+    private ParsedMessage? selectedMessage;
+    private int selectedMessageIndex = 0;
+    private int testClickCount = 0;
+    private string activeTab = "preview";
+    private string selectedExampleTab = "profile"; // "profile", "examples", "fields"
 
     protected override async Task OnInitializedAsync()
     {
+        Console.WriteLine($"[LIFECYCLE] OnInitializedAsync called for DocumentId: {DocumentId}");
         try
         {
+            Console.WriteLine($"[LIFECYCLE] Loading document {DocumentId}");
             document = await DocumentRepository.GetByIdAsync(DocumentId);
+            Console.WriteLine($"[LIFECYCLE] Document loaded successfully: {document?.FileName}");
+            
+            // Load messages immediately if we have content
+            if (document?.Content?.ExtractedText != null)
+            {
+                Console.WriteLine($"[LIFECYCLE] Loading messages during initialization");
+                await LoadMessages();
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading document {DocumentId}: {ex.Message}");
+            Console.WriteLine($"[ERROR] Error loading document {DocumentId}: {ex.Message}");
+            Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
         }
         finally
         {
             isLoading = false;
+            Console.WriteLine($"[LIFECYCLE] Loading complete, isLoading = false");
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        Console.WriteLine($"[LIFECYCLE] OnParametersSet called - DocumentId: {DocumentId}");
+        base.OnParametersSet();
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        Console.WriteLine($"[LIFECYCLE] OnAfterRender called - firstRender: {firstRender}");
+        base.OnAfterRender(firstRender);
+    }
+
+    public void Dispose()
+    {
+        Console.WriteLine($"[LIFECYCLE] Component being disposed for DocumentId: {DocumentId}");
+    }
+
+    private async Task LoadMessages()
+    {
+        Console.WriteLine($"[LOAD_MESSAGES] LoadMessages called");
+        Console.WriteLine($"[LOAD_MESSAGES] parsedMessages.Count: {parsedMessages.Count}");
+        Console.WriteLine($"[LOAD_MESSAGES] ExtractedText exists: {document?.Content?.ExtractedText != null}");
+        
+        if (parsedMessages.Any() || document?.Content?.ExtractedText == null)
+        {
+            Console.WriteLine($"[LOAD_MESSAGES] Returning early - already loaded or no text");
+            return;
+        }
+
+        Console.WriteLine($"[LOAD_MESSAGES] Starting message parsing");
+        isLoadingMessages = true;
+        StateHasChanged();
+
+        try
+        {
+            parsingResult = await MessageParsingService.ParseDocumentMessagesAdvanced(document.Content.ExtractedText);
+            Console.WriteLine($"[LOAD_MESSAGES] Document type detected: {parsingResult.DocumentType}");
+            Console.WriteLine($"[LOAD_MESSAGES] {parsingResult.AnalysisSummary}");
+            
+            // Use message types for display (grouped for specs, individual for traces)
+            parsedMessages = parsingResult.MessageTypes;
+            Console.WriteLine($"[LOAD_MESSAGES] Displaying {parsedMessages.Count} message types/instances");
+            
+            if (parsedMessages.Any())
+            {
+                selectedMessage = parsedMessages.First();
+                selectedMessageIndex = 0;
+                Console.WriteLine($"[LOAD_MESSAGES] Selected first message: {selectedMessage.MessageType}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Error parsing messages: {ex.Message}");
+            Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
+        }
+        finally
+        {
+            isLoadingMessages = false;
+            Console.WriteLine($"[LOAD_MESSAGES] Loading complete, calling StateHasChanged");
+            StateHasChanged();
+        }
+    }
+
+    private void SelectMessage(int index)
+    {
+        Console.WriteLine($"[SELECT_MESSAGE] ========== SelectMessage START ==========");
+        Console.WriteLine($"[SELECT_MESSAGE] Called with index: {index}");
+        Console.WriteLine($"[SELECT_MESSAGE] Current URL: {Navigation.Uri}");
+        Console.WriteLine($"[SELECT_MESSAGE] parsedMessages.Count: {parsedMessages.Count}");
+        Console.WriteLine($"[SELECT_MESSAGE] Current selectedMessageIndex: {selectedMessageIndex}");
+        
+        try
+        {
+            if (index >= 0 && index < parsedMessages.Count)
+            {
+                Console.WriteLine($"[SELECT_MESSAGE] Index is valid, updating selection");
+                selectedMessageIndex = index;
+                selectedMessage = parsedMessages[index];
+                Console.WriteLine($"[SELECT_MESSAGE] New selected message: {selectedMessage.MessageType}");
+                Console.WriteLine($"[SELECT_MESSAGE] About to call StateHasChanged");
+                StateHasChanged();
+                Console.WriteLine($"[SELECT_MESSAGE] StateHasChanged completed");
+                Console.WriteLine($"[SELECT_MESSAGE] Current URL after StateHasChanged: {Navigation.Uri}");
+            }
+            else
+            {
+                Console.WriteLine($"[SELECT_MESSAGE] ERROR: Index {index} out of range (count: {parsedMessages.Count})");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SELECT_MESSAGE] EXCEPTION: {ex.Message}");
+            Console.WriteLine($"[SELECT_MESSAGE] Stack trace: {ex.StackTrace}");
+        }
+        finally
+        {
+            Console.WriteLine($"[SELECT_MESSAGE] ========== SelectMessage END ==========");
         }
     }
 
@@ -208,5 +783,27 @@ else
         // TODO: Implement document deletion with confirmation
         Console.WriteLine($"Delete document {DocumentId}");
         Navigation.NavigateTo("/documents");
+    }
+    
+    private void TestBlazorEvent()
+    {
+        testClickCount++;
+        Console.WriteLine($"[TEST_BUTTON] TestBlazorEvent called! Count: {testClickCount}");
+        StateHasChanged();
+    }
+    
+    private async Task SwitchTab(string tabName)
+    {
+        Console.WriteLine($"[TAB_SWITCH] Switching to tab: {tabName}");
+        activeTab = tabName;
+        
+        if (tabName == "messages")
+        {
+            Console.WriteLine($"[TAB_SWITCH] Messages tab activated, calling LoadMessages");
+            await LoadMessages();
+        }
+        
+        StateHasChanged();
+        Console.WriteLine($"[TAB_SWITCH] Tab switch completed, activeTab: {activeTab}");
     }
 }
